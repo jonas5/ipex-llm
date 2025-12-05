@@ -42,7 +42,8 @@ RUN set -eux && \
     # Update and install basic dependencies
     apt-get update && \
     apt-get install -y --no-install-recommends \
-      curl wget git sudo libunwind8-dev vim less gnupg gpg-agent software-properties-common && \
+      curl wget git sudo libunwind8-dev vim less gnupg gpg-agent software-properties-common \
+      libvulkan1 mesa-vulkan-drivers vulkan-tools && \
     # 
     # Set timezone
     ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
@@ -89,6 +90,10 @@ RUN set -eux && \
     # 
     # Clean up unnecessary dependencies to reduce image size
     find /usr/lib/python3/dist-packages/ -name 'blinker*' -exec rm -rf {} + && \
-    rm -rf /root/.cache/Cypress
+    rm -rf /root/.cache/Cypress && \
+    #
+    # Install Ollama
+    curl -L https://github.com/ollama/ollama/releases/download/v0.13.1/ollama-linux-amd64 -o /usr/local/bin/ollama && \
+    chmod +x /usr/local/bin/ollama
 
 WORKDIR /llm/
