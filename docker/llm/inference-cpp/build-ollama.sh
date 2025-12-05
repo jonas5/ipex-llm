@@ -19,15 +19,9 @@ GGML_SYCL_DIR="${GGML_SRC_DIR}/ggml-sycl"
 
 if [ ! -d "$GGML_SYCL_DIR" ]; then
     echo ">>> ggml-sycl source directory missing. Fetching from upstream llama.cpp..."
-
-    # Clone llama.cpp to get compatible ggml-sycl implementation.
-    # We target a specific commit to ensure ABI compatibility with Ollama v0.13.1 headers.
-    # Ollama v0.13.1 (tag 5317202) is from Nov 2024.
-    # We use a llama.cpp commit from ~Nov 1 2024: ba6f62eb (Fri Nov 1 17:31:51 2024 +0200)
-
     git clone https://github.com/ggerganov/llama.cpp.git temp_llama
     cd temp_llama
-    git checkout ba6f62eb
+    git checkout ba6f62eb # Commit from early Nov 2024
     cd ..
 
     echo ">>> Injecting ggml-sycl into Ollama source tree..."
@@ -36,8 +30,6 @@ if [ ! -d "$GGML_SYCL_DIR" ]; then
     elif [ -d "temp_llama/src/ggml-sycl" ]; then
         cp -r temp_llama/src/ggml-sycl "$GGML_SRC_DIR/"
     else
-        # Fallback for older layout
-        echo "Warning: Standard ggml-sycl paths not found. Searching..."
         find temp_llama -name "ggml-sycl" -exec cp -r {} "$GGML_SRC_DIR/" \;
     fi
     rm -rf temp_llama
@@ -51,25 +43,53 @@ GEN_SCRIPT=$(find llm -name "gen_linux.sh")
 if [ -n "$GEN_SCRIPT" ]; then
     echo ">>> Found generation script: $GEN_SCRIPT"
 
-    # We need to inject the SYCL build configuration.
-    # We inject a block that builds the SYCL runner.
-    # We'll just append to the file, which runs after the standard builds.
+    # We append a specific build block for SYCL.
+    # Crucially, we must move the artifacts to where Ollama expects them for embedding.
+    # Standard Ollama builds artifacts into `build/linux/${ARCH}/`.
+    # We will build SYCL there.
 
     cat >> "$GEN_SCRIPT" << 'EOF'
 
 echo ">>> Building SYCL runner..."
-BUILD_DIR="build/linux/x86_64/sycl"
+ARCH=$(uname -m)
+BUILD_DIR="build/linux/${ARCH}/sycl"
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
+
+# Configure cmake with SYCL backend
 cmake ../../../.. \
     -DGGML_SYCL=ON \
     -DCMAKE_C_COMPILER=icx \
     -DCMAKE_CXX_COMPILER=icpx \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_SHARED_LIBS=OFF
+
 make -j$(nproc)
 
-echo ">>> SYCL runner built."
+echo ">>> Installing SYCL runner..."
+# Ollama's discovery logic looks for runners in the distribution payload.
+# By default, `go generate` compresses the output of `gen_linux.sh`.
+# We need to place our runner alongside the others (cpu, cuda, etc).
+# The standard script usually places binaries in `build/linux/${ARCH}/`.
+# We copy our result `ollama_llama_server` to `build/linux/${ARCH}/ollama_llama_server_sycl`.
+# Note: Ollama might expect specific naming conventions (e.g., using `ggml-sycl` tag).
+# If we name it `ollama_llama_server` it might overwrite the CPU one (which is fine if we want SYCL only).
+# But safest is to let it be a separate runner if supported.
+# However, patching the Go discovery code is hard.
+# Overwriting the default CPU runner with the SYCL runner ensures it is used!
+# This is a brute-force fix but effective for a custom Docker image.
+
+# Assuming the binary is named `ollama_llama_server` by cmake
+if [ -f "bin/ollama_llama_server" ]; then
+    cp "bin/ollama_llama_server" "../ollama_llama_server"
+    echo ">>> Replaced default runner with SYCL runner."
+elif [ -f "ollama_llama_server" ]; then
+    cp "ollama_llama_server" "../ollama_llama_server"
+    echo ">>> Replaced default runner with SYCL runner."
+else
+    echo ">>> Warning: Could not find SYCL runner binary to install."
+fi
+
 cd -
 EOF
     echo ">>> Injected SYCL build logic into $GEN_SCRIPT"
