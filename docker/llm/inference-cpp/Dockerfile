@@ -43,7 +43,8 @@ RUN set -eux && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
       curl wget git sudo libunwind8-dev vim less gnupg gpg-agent software-properties-common \
-      libvulkan1 mesa-vulkan-drivers vulkan-tools && \
+      libvulkan1 mesa-vulkan-drivers vulkan-tools \
+      libvulkan-dev cmake build-essential && \
     # 
     # Set timezone
     ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
@@ -92,8 +93,19 @@ RUN set -eux && \
     find /usr/lib/python3/dist-packages/ -name 'blinker*' -exec rm -rf {} + && \
     rm -rf /root/.cache/Cypress && \
     #
-    # Install Ollama
-    curl -L https://github.com/ollama/ollama/releases/download/v0.13.1/ollama-linux-amd64 -o /usr/local/bin/ollama && \
-    chmod +x /usr/local/bin/ollama
+    # Install Go and Build Ollama from source
+    wget https://go.dev/dl/go1.22.1.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go1.22.1.linux-amd64.tar.gz && \
+    rm go1.22.1.linux-amd64.tar.gz && \
+    export PATH=$PATH:/usr/local/go/bin && \
+    # Clone and Build Ollama
+    git clone --depth 1 --branch v0.13.1 https://github.com/ollama/ollama.git /tmp/ollama && \
+    cd /tmp/ollama && \
+    go generate ./... && \
+    go build -o /usr/bin/ollama . && \
+    cd / && \
+    rm -rf /tmp/ollama && \
+    # Cleanup Go
+    rm -rf /usr/local/go
 
 WORKDIR /llm/
