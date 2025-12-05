@@ -42,7 +42,13 @@ RUN set -eux && \
     # Update and install basic dependencies
     apt-get update && \
     apt-get install -y --no-install-recommends \
-      curl wget git sudo libunwind8-dev vim less gnupg gpg-agent software-properties-common && \
+      curl wget git sudo libunwind8-dev vim less gnupg gpg-agent software-properties-common \
+      build-essential cmake libvulkan-dev unzip && \
+    #
+    # Install Vulkan SDK
+    wget -qO - https://packages.lunarg.com/lunarg-signing-key-pub.asc | gpg --dearmor -o /etc/apt/trusted.gpg.d/lunarg-archive-keyring.gpg && \
+    wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list https://packages.lunarg.com/vulkan/1.3.290/lunarg-vulkan-jammy.list && \
+    apt-get update && apt-get install -y --no-install-recommends vulkan-sdk && \
     # 
     # Set timezone
     ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
@@ -90,5 +96,21 @@ RUN set -eux && \
     # Clean up unnecessary dependencies to reduce image size
     find /usr/lib/python3/dist-packages/ -name 'blinker*' -exec rm -rf {} + && \
     rm -rf /root/.cache/Cypress
+
+# Install Go 1.22
+RUN wget https://go.dev/dl/go1.22.2.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go1.22.2.linux-amd64.tar.gz && \
+    rm go1.22.2.linux-amd64.tar.gz
+ENV PATH=$PATH:/usr/local/go/bin
+
+# Copy build script
+COPY build-ollama.sh /llm/scripts/build-ollama.sh
+RUN chmod +x /llm/scripts/build-ollama.sh
+
+# Build Ollama 0.13.1 using the script
+RUN mkdir -p /llm/sources && cd /llm/sources && \
+    /llm/scripts/build-ollama.sh && \
+    mv ollama-0.13.1/ollama /usr/local/bin/ollama && \
+    cd /llm && rm -rf /llm/sources
 
 WORKDIR /llm/
